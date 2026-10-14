@@ -7,7 +7,12 @@ export const pool = new pg.Pool({
   connectionString: config.databaseUrl,
   max: 5,
   ssl: host.includes('.') ? { rejectUnauthorized: false } : false,
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 15_000, // allows for a serverless DB (e.g. Neon) waking up
 });
+
+// Idle connections can be dropped by the server (Neon suspends when idle); the pool reconnects.
+pool.on('error', (e) => console.error('pg pool error:', e.message));
 
 export async function migrate() {
   await pool.query(`

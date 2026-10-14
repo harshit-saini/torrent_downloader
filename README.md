@@ -11,7 +11,7 @@ Paste a magnet link or `.torrent` URL → the backend downloads it and stores th
 (Downloads use presigned URLs, so no CORS config is needed.)
 
 ## 2. Backend on Render
-Create a free Render Postgres first (the blueprint does this for you) and set `DATABASE_URL` to its **Internal** URL. Tables are created automatically. The DB stores the transfer history and the file index (name, folder, size, R2 key), so the list survives restarts, and transfers interrupted by a restart or sleep are resumed from scratch.
+Create a free Postgres first (Render's expires after 30 days; **Neon's free tier does not**, so it's the better choice: create a project at neon.tech and use its connection string, `sslmode=require` included) (the blueprint does this for you) and set `DATABASE_URL` to its **Internal** URL. Tables are created automatically. The DB stores the transfer history and the file index (name, folder, size, R2 key), so the list survives restarts, and transfers interrupted by a restart or sleep are resumed from scratch.
 
 Use `render.yaml` (Blueprint) or create a Node web service with root dir `backend`, build `npm install`, start `npm start`.
 Set env vars from `backend/.env.example`. `CORS_ORIGIN` = your frontend URL.
@@ -29,6 +29,6 @@ cd frontend && cp .env.example .env && npm i && npm run dev
 ## Free-tier caveats
 - Render free sleeps after 15 min idle (first request ~30–60s) and **a sleeping/restarted instance drops active downloads**. Keep it awake with an uptime pinger on `/healthz` while downloading.
 - Ephemeral disk and 512 MB RAM: files are uploaded to R2 one by one and deleted locally; torrents over `MAX_TORRENT_GB` are rejected (default 1 on Render).
-- Render's free Postgres is deleted after 30 days unless upgraded (back up or recreate it; R2 files are untouched, but the file index would need rebuilding). It has a 1 GB limit, which is plenty for metadata.
+- Render's free Postgres is deleted after 30 days unless upgraded; prefer Neon (free, no expiry, 0.5 GB). If you use Neon, remove the `databases:` block and `DATABASE_URL` entry from `render.yaml` and set `DATABASE_URL` yourself.
 - WebTorrent in Node only reaches TCP/uTP-less peers (no uTP/some DHT limits), so some torrents will be slow or have fewer peers than a native client.
 - Free R2 tier: 10 GB storage; egress is free.
