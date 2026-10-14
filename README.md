@@ -10,13 +10,14 @@ Paste a magnet link or `.torrent` URL → the backend downloads it and stores th
 3. Note Account ID, Access Key ID, Secret, bucket name.
 (Downloads use presigned URLs, so no CORS config is needed.)
 
-## 2. Backend on Render
-Create a free Postgres first (Render's expires after 30 days; **Neon's free tier does not**, so it's the better choice: create a project at neon.tech and use its connection string, `sslmode=require` included) (the blueprint does this for you) and set `DATABASE_URL` to its **Internal** URL. Tables are created automatically. The DB stores the transfer history and the file index (name, folder, size, R2 key), so the list survives restarts, and transfers interrupted by a restart or sleep are resumed from scratch.
+## 2. Neon Postgres
+Create a free project at neon.tech and copy the connection string (it includes `sslmode=require`). Tables are created automatically on first start. The DB stores transfer history and the file index (name, folder, size, R2 key), so they survive restarts; transfers interrupted by a restart or sleep are resumed from scratch.
 
+## 3. Backend on Render
 Use `render.yaml` (Blueprint) or create a Node web service with root dir `backend`, build `npm install`, start `npm start`.
-Set env vars from `backend/.env.example`. `CORS_ORIGIN` = your frontend URL.
+Set env vars from `backend/.env.example` (`DATABASE_URL` = your Neon string). `CORS_ORIGIN` = your frontend URL.
 
-## 3. Frontend on Vercel/Netlify
+## 4. Frontend on Vercel/Netlify
 Root dir `frontend`, build `npm run build`, output `dist`, env `VITE_API_URL` = your Render URL.
 
 ## Local dev
@@ -29,6 +30,6 @@ cd frontend && cp .env.example .env && npm i && npm run dev
 ## Free-tier caveats
 - Render free sleeps after 15 min idle (first request ~30–60s) and **a sleeping/restarted instance drops active downloads**. Keep it awake with an uptime pinger on `/healthz` while downloading.
 - Ephemeral disk and 512 MB RAM: files are uploaded to R2 one by one and deleted locally; torrents over `MAX_TORRENT_GB` are rejected (default 1 on Render).
-- Render's free Postgres is deleted after 30 days unless upgraded; prefer Neon (free, no expiry, 0.5 GB). If you use Neon, remove the `databases:` block and `DATABASE_URL` entry from `render.yaml` and set `DATABASE_URL` yourself.
+- Neon's free compute suspends when idle and wakes in about a second; free tier storage is 0.5 GB (plenty for metadata).
 - WebTorrent in Node only reaches TCP/uTP-less peers (no uTP/some DHT limits), so some torrents will be slow or have fewer peers than a native client.
 - Free R2 tier: 10 GB storage; egress is free.
