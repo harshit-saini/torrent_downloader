@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "main": "src/server.js",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js"
@@ -15,6 +17,10 @@
     "@aws-sdk/s3-request-presigner": "^3.700.0",
     "cors": "^2.8.5",
     "express": "^4.21.0",
-    "webtorrent": "^2.5.0"
+    "pg": "^8.23.1",
+    "webtorrent": "^2.5.19"
+  },
+  "overrides": {
+    "uint8-util": "2.2.5"
   }
 }

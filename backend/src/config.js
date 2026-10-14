@@ -2,6 +2,7 @@ const env = process.env;
 
 export const config = {
   port: Number(env.PORT || 3000),
+  databaseUrl: env.DATABASE_URL,
   password: env.APP_PASSWORD,
   tokenSecret: env.TOKEN_SECRET,
   corsOrigin: (env.CORS_ORIGIN || '*').split(',').map((s) => s.trim()),
@@ -17,6 +18,7 @@ export const config = {
 };
 
 for (const [k, v] of Object.entries({
+  DATABASE_URL: config.databaseUrl,
   APP_PASSWORD: config.password,
   TOKEN_SECRET: config.tokenSecret,
   R2_ACCOUNT_ID: config.r2.accountId,

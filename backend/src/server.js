@@ -3,7 +3,12 @@ import cors from 'cors';
 import { config } from './config.js';
 import { checkPassword, issueToken, requireAuth } from './auth.js';
 import { addJob, listJobs, cancelJob, init } from './torrents.js';
-import { listFiles, downloadUrl, deleteKeys } from './r2.js';
+import { downloadUrl, deleteKeys } from './r2.js';
+import { listFileRows, deleteFileRows } from './db.js';
+
+// WebTorrent can throw asynchronously on malformed input; don't let that kill the server.
+process.on('uncaughtException', (e) => console.error('uncaught:', e));
+process.on('unhandledRejection', (e) => console.error('unhandled:', e));
 
 const app = express();
 app.use(
@@ -37,8 +42,9 @@ app.get('/api/torrents', (_req, res) => res.json(listJobs()));
 
 app.post('/api/torrents', (req, res) => {
   const uri = String(req.body?.uri || '').trim();
-  if (!/^magnet:\?/i.test(uri) && !/^https?:\/\/.+/i.test(uri)) {
-    return res.status(400).json({ error: 'Provide a magnet link or an http(s) .torrent URL' });
+  const validMagnet = /^magnet:\?.*xt=urn:btih:([a-f0-9]{40}|[a-z2-7]{32})(&|$)/i.test(uri);
+  if (!validMagnet && !/^https?:\/\/.+/i.test(uri)) {
+    return res.status(400).json({ error: 'Provide a valid magnet link or an http(s) .torrent URL' });
   }
   res.status(201).json({ id: addJob(uri) });
 });
@@ -50,7 +56,7 @@ app.delete('/api/torrents/:id', async (req, res) => {
 
 app.get('/api/files', async (_req, res, next) => {
   try {
-    res.json(await listFiles());
+    res.json(await listFileRows());
   } catch (e) {
     next(e);
   }
@@ -71,7 +77,9 @@ app.post('/api/files/delete', async (req, res, next) => {
   try {
     const keys = req.body?.keys;
     if (!Array.isArray(keys) || !keys.length) return res.status(400).json({ error: 'keys required' });
-    await deleteKeys(keys.map(String));
+    const list = keys.map(String);
+    await deleteKeys(list);
+    await deleteFileRows(list);
     res.json({ ok: true });
   } catch (e) {
     next(e);
