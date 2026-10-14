@@ -41,7 +41,8 @@ function Jobs({ jobs, onCancel }) {
         <div className="bar"><div style={{ width: `${Math.round(j.progress * 100)}%` }} className={j.status} /></div>
         <div className="muted small">
           {j.status === 'downloading' && `Downloading ${Math.round(j.progress * 100)}% · ${bytes(j.downloadSpeed)}/s · ${j.peers} peers · ${bytes(j.size)}`}
-          {j.status === 'uploading' && `Uploading to R2 · ${bytes(j.uploaded)} / ${bytes(j.size)}`}
+          {j.status === 'uploading' && `Uploading to R2 · ${Math.round(j.progress * 100)}% of ${bytes(j.size)}`}
+          {j.currentFile && ` · file ${j.fileIndex}/${j.fileCount}: ${j.currentFile}`}
           {j.status === 'queued' && 'Queued'}
           {j.status === 'done' && `Saved to R2 · ${bytes(j.size)}`}
           {j.status === 'error' && <span className="error">Failed: {j.error}</span>}

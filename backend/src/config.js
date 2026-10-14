@@ -12,7 +12,7 @@ export const config = {
     secretAccessKey: env.R2_SECRET_ACCESS_KEY,
     bucket: env.R2_BUCKET,
   },
-  maxTorrentBytes: Number(env.MAX_TORRENT_GB || 2) * 1024 ** 3,
+  maxFileBytes: Number(env.MAX_FILE_GB || 2) * 1024 ** 3,
   maxConcurrent: Number(env.MAX_CONCURRENT || 1),
   downloadDir: env.DOWNLOAD_DIR || '/tmp/torrents',
 };
