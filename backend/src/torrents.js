@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import WebTorrent from 'webtorrent';
 import { config } from './config.js';
 import { uploadFile } from './r2.js';
-import { migrate, saveJob, deleteJob, loadJobs, addFile } from './db.js';
+import { migrate, saveJob, deleteJob, loadJobs, addFile, existingFiles } from './db.js';
 
 const client = new WebTorrent();
 client.on('error', (e) => console.error('webtorrent error', e.message));
@@ -38,18 +38,27 @@ const persist = (job) =>
 export function listJobs() {
   return [...jobs.values()]
     .map((j) => {
-      const t = j.torrent;
-      const downloading = j.status === 'downloading' && t;
+      const active = ['downloading', 'uploading'].includes(j.status) && j.torrent;
+      const partial = active && j.cur ? j.cur.downloaded : 0;
+      const progress =
+        j.status === 'done'
+          ? 1
+          : active && j.size
+            ? Math.min(1, ((j.doneBytes || 0) + partial) / j.size)
+            : 0;
       return {
         id: j.id,
         name: j.name,
         status: j.status,
         error: j.error,
         size: j.size,
-        progress: downloading ? t.progress : j.status === 'uploading' ? 1 : j.progress,
-        downloadSpeed: downloading ? t.downloadSpeed : 0,
-        peers: downloading ? t.numPeers : 0,
-        uploaded: j.uploaded,
+        progress,
+        downloadSpeed: j.status === 'downloading' && j.torrent ? j.torrent.downloadSpeed : 0,
+        peers: j.status === 'downloading' && j.torrent ? j.torrent.numPeers : 0,
+        uploaded: j.uploaded || 0,
+        currentFile: active ? j.currentFile : undefined,
+        fileIndex: active ? j.fileIndex : undefined,
+        fileCount: active ? j.fileCount : undefined,
         createdAt: j.createdAt,
       };
     })
@@ -131,16 +140,22 @@ function destroy(job) {
   }).then(() => fs.rm(job.dir, { recursive: true, force: true }));
 }
 
+const STALL_MS = 10 * 60_000;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Replaceable in tests.
+export const deps = { uploadFile, addFile, existingFiles };
+
 async function run(job) {
   job.status = 'downloading';
   persist(job);
   job.dir = path.join(config.downloadDir, job.id);
   await fs.mkdir(job.dir, { recursive: true });
-
   try {
-    await download(job);
+    const torrent = await fetchMetadata(job);
+    await processFiles(job, torrent);
     if (job.cancelled) return;
-    await upload(job);
+    job.progress = 1;
     job.status = 'done';
     persist(job);
   } finally {
@@ -148,54 +163,97 @@ async function run(job) {
   }
 }
 
-function download(job) {
+function fetchMetadata(job) {
   return new Promise((resolve, reject) => {
     const timeout = setTimeout(
       () => reject(new Error('No metadata received after 3 minutes')),
       180_000,
     );
-    const torrent = client.add(job.uri, { path: job.dir });
+    // deselect: download nothing until we ask for it file by file.
+    const torrent = client.add(job.uri, { path: job.dir, deselect: true });
     job.torrent = torrent;
-    torrent.on('error', reject);
-    torrent.on('metadata', () => {
+    torrent.on('error', (e) => {
+      clearTimeout(timeout);
+      reject(e);
+    });
+    // We only leech: keep peers choked so we never read files we've already deleted.
+    torrent.on('wire', (wire) => {
+      wire.unchoke = () => {};
+      wire.choke();
+    });
+    torrent.on('ready', () => {
       clearTimeout(timeout);
       job.name = torrent.name;
       job.size = torrent.length;
       persist(job);
-      if (torrent.length > config.maxTorrentBytes) {
-        reject(
-          new Error(
-            `Torrent is ${(torrent.length / 1024 ** 3).toFixed(2)} GB, limit is ${(config.maxTorrentBytes / 1024 ** 3).toFixed(2)} GB`,
-          ),
-        );
-      }
-    });
-    torrent.on('done', () => {
-      job.progress = 1;
-      resolve();
+      resolve(torrent);
     });
   });
 }
 
-async function upload(job) {
-  job.status = 'uploading';
-  persist(job);
-  const t = job.torrent;
-  // Single-file torrents sit at the root of dir; multi-file ones are already under torrent.name/.
-  const root = sanitize(t.name);
-  let doneBytes = 0;
-  for (const f of t.files) {
+// Download, upload and delete one file at a time so disk use stays at ~one file.
+async function processFiles(job, torrent) {
+  const gb = (n) => (n / 1024 ** 3).toFixed(2);
+  const biggest = Math.max(0, ...torrent.files.map((f) => f.length));
+  if (biggest > config.maxFileBytes) {
+    throw new Error(
+      `Largest file is ${gb(biggest)} GB; limit is ${gb(config.maxFileBytes)} GB per file`,
+    );
+  }
+
+  const root = sanitize(torrent.name);
+  const single = torrent.files.length === 1;
+  const already = await deps.existingFiles(root);
+  job.fileCount = torrent.files.length;
+  job.doneBytes = 0;
+
+  for (const [i, f] of torrent.files.entries()) {
     if (job.cancelled) return;
     const rel = f.path.split(path.sep).join('/');
-    const key = t.files.length === 1 && rel === f.name ? `${root}/${f.name}` : rel;
-    await uploadFile(key, path.join(job.dir, f.path), (loaded) => {
-      job.uploaded = doneBytes + loaded;
+    const key = single && rel === f.name ? `${root}/${f.name}` : rel;
+    job.fileIndex = i + 1;
+    job.currentFile = f.name;
+
+    // Resumed job: this file already reached R2 before the restart.
+    if (already.get(key) === f.length) {
+      job.doneBytes += f.length;
+      continue;
+    }
+
+    job.status = 'downloading';
+    job.cur = f;
+    if (f.length > 0) {
+      f.select();
+      await waitForFile(job, torrent, f);
+      if (job.cancelled) return;
+    }
+
+    job.status = 'uploading';
+    job.uploaded = 0;
+    const local = path.join(job.dir, f.path);
+    await deps.uploadFile(key, local, (loaded) => {
+      job.uploaded = loaded;
     });
-    await addFile({ key, jobId: job.id, folder: key.split('/')[0], name: f.name, size: f.length });
-    doneBytes += f.length;
-    job.uploaded = doneBytes;
-    // Free disk as we go.
-    await fs.rm(path.join(job.dir, f.path), { force: true });
+    await deps.addFile({ key, jobId: job.id, folder: key.split('/')[0], name: f.name, size: f.length });
+    job.doneBytes += f.length;
+    job.cur = null;
+    f.deselect();
+    await fs.rm(local, { force: true });
+  }
+}
+
+async function waitForFile(job, torrent, f) {
+  let last = -1;
+  let lastChange = Date.now();
+  while (f.downloaded < f.length) {
+    if (job.cancelled) return;
+    if (f.downloaded !== last) {
+      last = f.downloaded;
+      lastChange = Date.now();
+    } else if (Date.now() - lastChange > STALL_MS) {
+      throw new Error(`Stalled: no progress on "${f.name}" for 10 minutes (no seeders?)`);
+    }
+    await sleep(1000);
   }
 }
 

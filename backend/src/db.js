@@ -83,3 +83,9 @@ export async function listFileRows() {
 }
 
 export const deleteFileRows = (keys) => pool.query('DELETE FROM files WHERE key = ANY($1)', [keys]);
+
+// key -> size for everything already stored under a folder (used to resume interrupted jobs).
+export async function existingFiles(folder) {
+  const { rows } = await pool.query('SELECT key, size FROM files WHERE folder=$1', [folder]);
+  return new Map(rows.map((r) => [r.key, Number(r.size)]));
+}
