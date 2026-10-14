@@ -29,7 +29,8 @@ cd frontend && cp .env.example .env && npm i && npm run dev
 
 ## Free-tier caveats
 - Render free sleeps after 15 min idle (first request ~30–60s) and **a sleeping/restarted instance drops active downloads**. Keep it awake with an uptime pinger on `/healthz` while downloading.
-- Ephemeral disk and 512 MB RAM: files are uploaded to R2 one by one and deleted locally; torrents over `MAX_TORRENT_GB` are rejected (default 1 on Render).
+- Ephemeral disk and 512 MB RAM: files are downloaded **one at a time**, uploaded to R2 and deleted locally, so a torrent can be far bigger than the disk as long as its largest file fits. Files over `MAX_FILE_GB` (default 1 on Render, a guess; raise it if your disk allows) are rejected. A single 10 GB file will not fit on the free tier.
+- Interrupted jobs resume without re-uploading files already in R2.
 - Neon's free compute suspends when idle and wakes in about a second; free tier storage is 0.5 GB (plenty for metadata).
 - WebTorrent in Node only reaches TCP/uTP-less peers (no uTP/some DHT limits), so some torrents will be slow or have fewer peers than a native client.
 - Free R2 tier: 10 GB storage; egress is free.

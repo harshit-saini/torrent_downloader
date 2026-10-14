@@ -1,0 +1,18 @@
+{
+  "default_branch": "ccr-cfc82581-c0xzbt",
+  "branches": [
+    "ccr-cfc82581-c0xzbt",
+    "main",
+    "origin"
+  ],
+  "parent": {
+    "ccr-cfc82581-c0xzbt": null,
+    "main": "ccr-cfc82581-c0xzbt",
+    "origin": "ccr-cfc82581-c0xzbt"
+  },
+  "order": [
+    "ccr-cfc82581-c0xzbt",
+    "main",
+    "origin"
+  ]
+}
